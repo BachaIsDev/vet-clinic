@@ -1,0 +1,46 @@
+name: AI Code Review
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  code-review:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Get Java diff
+        id: diff
+        run: |
+          # Получаем diff только Java файлов
+          DIFF=$(git diff HEAD~1 HEAD)
+          
+          if [ -z "$DIFF" ]; then
+            echo "Нет изменений"
+            echo "has_diff=false" >> $GITHUB_OUTPUT
+          else
+            # Сохраняем в файл (избегаем проблем со спецсимволами)
+            echo "$DIFF" > diff.txt
+            echo "has_diff=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Send to Review Server
+        if: steps.diff.outputs.has_diff == 'true'
+        run: |
+          DIFF_CONTENT=$(cat diff.txt)
+          
+          curl -X POST "https://tingling-chemist-liberty.ngrok-free.dev/api/review" \
+            -H "Content-Type: application/json" \
+            -H "X-Webhook-Secret: ${{ secrets.WEBHOOK_SECRET }}" \
+            -d "{
+              \"owner\": \"${{ github.repository_owner }}\",
+              \"repo\": \"${{ github.event.repository.name }}\",
+              \"sha\": \"${{ github.sha }}\",
+              \"author\": \"${{ github.actor }}\",
+              \"message\": \"${{ github.event.head_commit.message }}\",
+              \"diff\": $(echo "$DIFF_CONTENT" | jq -Rs .)
+            }"
